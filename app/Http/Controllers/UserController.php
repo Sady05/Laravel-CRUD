@@ -3,82 +3,91 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use DataTables;
 use Illuminate\Support\Facades\Storage;
 
 class UserController extends Controller
 {
-    // Show all users
-    public function index()
+    // Display a listing of the users
+    public function index(Request $request)
     {
-        $users = User::all();
-        return view('users.index', compact('users'));
-    }
-
-    // Show form for creating a new user
-    public function create()
-    {
-        return view('users.create');
-    }
-
-    // Store new user
-    public function store(Request $request)
-    {
-        $request->validate([
-            'name' => 'required',
-            'email' => 'required|email|unique:users',
-            'password' => 'required',
-            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
-        ]);
-
-        $profile_image = null;
-        if ($request->file('profile_image')) {
-            $profile_image = $request->file('profile_image')->store('profile_images', 'public');
+        if ($request->ajax()) {
+            $data = User::latest()->get();
+            return DataTables::of($data)
+                ->addIndexColumn()
+                ->addColumn('profile_image', function($row) {
+                    return $row->profile_image 
+                        ? '<img src="'.Storage::url($row->profile_image).'" width="50" height="50" class="rounded-circle" />' 
+                        : 'N/A';
+                })
+                ->addColumn('actions', function($row) {
+                    $btn = '<button class="btn btn-warning btn-sm" onclick="editUser(' . $row->id . ')">Edit</button>';
+                    $btn .= ' <button class="btn btn-danger btn-sm" onclick="deleteUser(' . $row->id . ')">Delete</button>';
+                    return $btn;
+                })
+                ->rawColumns(['profile_image', 'actions'])
+                ->make(true);
         }
 
-        User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'profile_image' => $profile_image,
+        return view('users.index');
+    }
+
+    // Store a newly created user
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required',
+            'email' => 'required|email|unique:users,email',
+            'profile_image' => 'nullable|image|mimes:jpg,png,jpeg,gif,svg|max:2048',
         ]);
+
+        $user = new User;
+        $user->name = $request->name;
+        $user->email = $request->email;
+
+
+        if ($request->hasFile('profile_image')) {
+            $user->profile_image = $request->file('profile_image')->store('profile_images', 'public');
+        }
+        
+        $user->save();
 
         return response()->json(['success' => 'User created successfully.']);
     }
 
-    // Show form to edit the user
+    // Show the form for editing the specified user
     public function edit($id)
     {
         $user = User::find($id);
-        return compact('user');
-        // return view('users.edit', compact('user'));
+        return response()->json(['user' => $user]);
     }
 
-    // Update the user
-    public function update(Request $request)
+    // Update the specified user
+    public function update(Request $request, $id)
     {
-         
-        $user = User::find($request->id);
-
-        $request->validate([
+        $validated = $request->validate([
             'name' => 'required',
-            'email' => 'required|email|unique:users,email,' . $user->id,
-            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'email' => 'required|email|unique:users,email,' . $id,
+            'profile_image' => 'nullable|image|mimes:jpg,png,jpeg,gif,svg|max:2048',
         ]);
 
-        if ($request->file('profile_image')) {
+        $user = User::find($id);
+        $user->name = $request->name;
+        $user->email = $request->email;
+
+        if ($request->hasFile('profile_image')) {
             if ($user->profile_image) {
                 Storage::disk('public')->delete($user->profile_image);
             }
             $user->profile_image = $request->file('profile_image')->store('profile_images', 'public');
         }
 
-        $user->update($request->all());
+        $user->save();
 
         return response()->json(['success' => 'User updated successfully.']);
     }
 
-    // Delete the user
+    // Remove the specified user
     public function destroy($id)
     {
         $user = User::find($id);
